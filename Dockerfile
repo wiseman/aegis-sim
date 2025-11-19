@@ -15,7 +15,11 @@ RUN pnpm install --frozen-lockfile
 # Copy source code
 COPY . .
 
-# Build the application
+# Accept build argument and set as environment variable for the build
+ARG GEMINI_API_KEY
+ENV GEMINI_API_KEY=${GEMINI_API_KEY}
+
+# Build the application (now GEMINI_API_KEY is available)
 RUN pnpm build
 
 # Production stage
