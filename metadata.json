@@ -1,0 +1,5 @@
+{
+  "name": "AEGIS TAO Simulator",
+  "description": "A serious-game simulation of a Tactical Action Officer station on a guided missile cruiser. Monitor air tracks, identify threats, and defend the formation.",
+  "requestFramePermissions": []
+}
