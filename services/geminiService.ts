@@ -4,9 +4,9 @@ import { Track, TrackIdentity, TrackType, EngagementStatus } from "../types";
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Generate a random scenario
-export const generateScenario = async (): Promise<{ 
-  description: string; 
-  tracks: Partial<Track>[] 
+export const generateScenario = async (): Promise<{
+  description: string;
+  tracks: Partial<Track>[]
 }> => {
   const prompt = `
     You are a naval warfare simulation designer. Create a realistic tactical scenario for an AEGIS cruiser.
@@ -24,6 +24,7 @@ export const generateScenario = async (): Promise<{
     Output JSON format only.
   `;
 
+  console.log(`Prompt: ${prompt}`)
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -66,6 +67,7 @@ export const generateScenario = async (): Promise<{
     });
 
     if (response.text) {
+      console.log(JSON.parse(response.text));
       return JSON.parse(response.text);
     }
     throw new Error("Empty response");
@@ -90,7 +92,7 @@ export const generateScenario = async (): Promise<{
 
 // Generate dynamic chatter based on game events
 export const generateChatter = async (
-  event: string, 
+  event: string,
   context: string
 ): Promise<string> => {
   const prompt = `
@@ -105,6 +107,7 @@ export const generateChatter = async (
     Return just the text of the message.
   `;
 
+  console.log(`Prompt: ${prompt}`);
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -118,7 +121,7 @@ export const generateChatter = async (
 
 // Analyze User Actions for Debriefing
 export const generateDebrief = async (
-  logs: any[], 
+  logs: any[],
   score: number
 ): Promise<string> => {
   const prompt = `
@@ -129,8 +132,9 @@ export const generateDebrief = async (
     Provide a 3 sentence evaluation of the TAO's performance.
   `;
 
+  console.log(`Prompt: ${prompt}`);
   try {
-     const response = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
     });
