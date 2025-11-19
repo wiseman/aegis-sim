@@ -432,7 +432,7 @@ const App: React.FC = () => {
 
         {/* Right: Controls & Logs */}
         <div className="col-span-3 flex flex-col gap-2 h-full min-h-0">
-          <div className="h-2/5 shrink-0">
+          <div className="h-auto shrink-0">
             <ControlPanel
               selectedTrack={tracks.find(t => t.id === selectedTrackId) || null}
               onIdentify={handleIdentify}
