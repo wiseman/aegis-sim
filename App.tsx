@@ -63,7 +63,8 @@ const App: React.FC = () => {
         type: t.type || TrackType.AIR,
         engagementStatus: EngagementStatus.NONE,
         lastUpdated: Date.now(),
-        history: []
+        history: [],
+        responsive: t.responsive
       }));
 
       // 2. Add Formation Ships (Fixed relative to start)
@@ -244,7 +245,7 @@ const App: React.FC = () => {
       const currentTrack = tracksRef.current.find(t => t.id === id);
       if (!currentTrack) return;
 
-      if (currentTrack.identity === TrackIdentity.HOSTILE) {
+      if (currentTrack.responsive === false) {
         addLog("COMS", `No response from ${currentTrack.callsign}.`, 'high');
       } else {
         try {

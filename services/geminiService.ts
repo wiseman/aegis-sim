@@ -20,6 +20,7 @@ export const generateScenario = async (): Promise<{
     4. Positions should be relative X/Y in nautical miles (max 70nm).
     5. Speeds in knots (300-600 for air, 30 for surface).
     6. Altitudes in feet.
+    7. Some tracks should be non-responsive (responsive: false), regardless of identity.
     
     Output JSON format only.
   `;
@@ -57,7 +58,8 @@ export const generateScenario = async (): Promise<{
                   },
                   altitude: { type: Type.NUMBER },
                   identity: { type: Type.STRING, enum: ["UNKNOWN", "NEUTRAL", "FRIEND", "HOSTILE"] },
-                  type: { type: Type.STRING, enum: ["AIR", "SURFACE"] }
+                  type: { type: Type.STRING, enum: ["AIR", "SURFACE"] },
+                  responsive: { type: Type.BOOLEAN }
                 }
               }
             }
@@ -84,6 +86,7 @@ export const generateScenario = async (): Promise<{
           altitude: 30000,
           identity: TrackIdentity.UNKNOWN,
           type: TrackType.AIR,
+          responsive: false,
         }
       ]
     };

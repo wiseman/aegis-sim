@@ -39,6 +39,7 @@ export interface Track {
   engagementStatus: EngagementStatus;
   lastUpdated: number;
   history: Position[]; // Trail
+  responsive?: boolean; // Whether the track responds to queries
 }
 
 export interface LogMessage {
