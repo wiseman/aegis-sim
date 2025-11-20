@@ -2,14 +2,15 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import RadarDisplay from './components/RadarDisplay';
 import CommsLog from './components/CommsLog';
 import ControlPanel from './components/ControlPanel';
-import { Track, TrackIdentity, LogMessage, GamePhase, EngagementStatus, TrackType } from './types';
-import { INITIAL_LOGS, RADAR_RANGE_NM, SIMULATION_TICK_MS, MISSILE_SPEED_KTS, INTERCEPT_RANGE_NM } from './constants';
+import { Track, TrackIdentity, LogMessage, GamePhase, EngagementStatus, TrackType, TrackRole } from './types';
+import { INITIAL_LOGS, SIMULATION_TICK_MS, MISSILE_SPEED_KTS, INTERCEPT_RANGE_NM } from './constants';
 import { generateScenario, generateChatter, generateDebrief } from './services/geminiService';
 import { Play, Activity, Shield, AlertTriangle, Skull } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- State ---
   const [phase, setPhase] = useState<GamePhase>(GamePhase.BRIEFING);
+  const [radarRange, setRadarRange] = useState<number>(200);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [logs, setLogs] = useState<LogMessage[]>([...INITIAL_LOGS]);
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
@@ -53,19 +54,28 @@ const App: React.FC = () => {
       addLog("SYSTEM", `SCENARIO LOADED: ${scenario.description}`, 'high');
 
       // 1. Convert Scenario Tracks
-      const scenarioTracks: Track[] = scenario.tracks.map((t: any, idx: number) => ({
-        id: `trk-${idx}`,
-        callsign: t.callsign || `UNK-${1000 + idx}`,
-        position: t.position || { x: 20, y: 20 },
-        vector: t.vector || { heading: 180, speed: 300 },
-        altitude: t.altitude || 20000,
-        identity: t.identity || TrackIdentity.UNKNOWN,
-        type: t.type || TrackType.AIR,
-        engagementStatus: EngagementStatus.NONE,
-        lastUpdated: Date.now(),
-        history: [],
-        responsive: t.responsive
-      }));
+      const scenarioTracks: Track[] = scenario.tracks.map((t: any, idx: number) => {
+        const groundTruth = t.identity || TrackIdentity.UNKNOWN;
+        // Mask identity: FRIEND stays FRIEND (IFF), others UNKNOWN
+        const initialIdentity = groundTruth === TrackIdentity.FRIEND ? TrackIdentity.FRIEND : TrackIdentity.UNKNOWN;
+
+        return {
+          id: `trk-${idx}`,
+          callsign: t.callsign || `UNK-${1000 + idx}`,
+          position: t.position || { x: 20, y: 20 },
+          vector: t.vector || { heading: 180, speed: 300 },
+          altitude: t.altitude || 20000,
+          identity: initialIdentity,
+          actualIdentity: groundTruth,
+          type: t.type || TrackType.AIR,
+          role: t.role || TrackRole.NONE,
+          engagementStatus: EngagementStatus.NONE,
+          lastUpdated: Date.now(),
+          history: [],
+          responsive: t.responsive,
+          ammo: (t.role === TrackRole.FIGHTER || t.role === TrackRole.ATTACK) ? 2 : 0
+        };
+      });
 
       // 2. Add Formation Ships (Fixed relative to start)
       const formationTracks: Track[] = [
@@ -76,6 +86,7 @@ const App: React.FC = () => {
           vector: { ...OWNSHIP_VECTOR }, // Matching speed/course
           altitude: 0,
           identity: TrackIdentity.FRIEND,
+          actualIdentity: TrackIdentity.FRIEND,
           type: TrackType.SURFACE,
           engagementStatus: EngagementStatus.NONE,
           lastUpdated: Date.now(),
@@ -88,6 +99,7 @@ const App: React.FC = () => {
           vector: { ...OWNSHIP_VECTOR }, // Matching speed/course
           altitude: 0,
           identity: TrackIdentity.FRIEND,
+          actualIdentity: TrackIdentity.FRIEND,
           type: TrackType.SURFACE,
           engagementStatus: EngagementStatus.NONE,
           lastUpdated: Date.now(),
@@ -100,7 +112,21 @@ const App: React.FC = () => {
           vector: { ...OWNSHIP_VECTOR },
           altitude: 0,
           identity: TrackIdentity.FRIEND,
+          actualIdentity: TrackIdentity.FRIEND,
           type: TrackType.SURFACE,
+          engagementStatus: EngagementStatus.NONE,
+          lastUpdated: Date.now(),
+          history: []
+        },
+        {
+          id: 'own-hawkeye-1',
+          callsign: ['STEELJAW', 'EAGLE', 'HUMMER'][Math.floor(Math.random() * 3)],
+          position: { x: 20, y: 45 }, // Orbiting station
+          vector: { heading: 90, speed: 250 },
+          altitude: 25000,
+          identity: TrackIdentity.FRIEND,
+          actualIdentity: TrackIdentity.FRIEND,
+          type: TrackType.AIR,
           engagementStatus: EngagementStatus.NONE,
           lastUpdated: Date.now(),
           history: []
@@ -126,7 +152,98 @@ const App: React.FC = () => {
         // Calculate Hours per tick for movement
         const hoursPerTick = (SIMULATION_TICK_MS / 3600000) * TIME_ACCELERATION;
 
+        let newMissiles: Track[] = [];
+
         let updatedTracks = currentTracks.map(track => {
+          // 0. AI Logic (Hostiles Only)
+          // Use actualIdentity for AI behavior
+          if (track.actualIdentity === TrackIdentity.HOSTILE && track.type === TrackType.AIR && track.engagementStatus !== EngagementStatus.DESTROYED) {
+            // Fighter Logic
+            if (track.role === TrackRole.FIGHTER) {
+              // Target Blue Air (Hawkeye)
+              const target = currentTracks.find(t => t.id === 'own-hawkeye-1');
+              const targetDestroyed = !target || target.engagementStatus === EngagementStatus.DESTROYED;
+
+              if (targetDestroyed) {
+                // Egress Logic: Run away from ownship (0,0)
+                const dX = track.position.x - 0;
+                const dY = track.position.y - 0;
+                const escapeAngle = Math.atan2(dY, dX) * (180 / Math.PI);
+                track.vector.heading = (90 - escapeAngle + 360) % 360;
+                track.vector.speed = 1000; // Max speed egress
+              } else {
+                // Move towards target
+                const dX = target.position.x - track.position.x;
+                const dY = target.position.y - track.position.y;
+                const targetAngle = Math.atan2(dY, dX) * (180 / Math.PI);
+                track.vector.heading = (90 - targetAngle + 360) % 360;
+                track.vector.speed = 800; // Afterburners
+
+                // Fire AAM if in range (e.g. 40nm) and has ammo
+                const dist = Math.sqrt(dX * dX + dY * dY);
+                if (dist < 40 && (track.ammo || 0) > 0 && Math.random() < 0.05) {
+                  newMissiles.push({
+                    id: `msl-hostile-${Date.now()}-${Math.random()}`,
+                    callsign: `AAM->${target.id}`,
+                    position: { ...track.position },
+                    vector: { heading: track.vector.heading, speed: 2000 },
+                    altitude: track.altitude,
+                    identity: TrackIdentity.HOSTILE,
+                    actualIdentity: TrackIdentity.HOSTILE,
+                    type: TrackType.MISSILE,
+                    engagementStatus: EngagementStatus.FIRING,
+                    lastUpdated: now,
+                    history: []
+                  });
+                  track.ammo = (track.ammo || 0) - 1;
+                  addLog("EW", `VAMPIRE! VAMPIRE! Inbound missile from ${track.callsign}!`, 'critical');
+                }
+              }
+            }
+            // Attack Logic
+            else if (track.role === TrackRole.ATTACK) {
+              // Target Surface (Ownship)
+              const target = { position: { x: 0, y: 0 }, id: 'ownship' }; // Ownship is at 0,0 relative
+
+              // Check ammo status
+              if ((track.ammo || 0) <= 0) {
+                // Egress Logic: Run away from ownship
+                const dX = track.position.x - 0;
+                const dY = track.position.y - 0;
+                const escapeAngle = Math.atan2(dY, dX) * (180 / Math.PI);
+                track.vector.heading = (90 - escapeAngle + 360) % 360;
+                track.vector.speed = 800; // Max speed egress
+              } else {
+                // Move towards target
+                const dX = target.position.x - track.position.x;
+                const dY = target.position.y - track.position.y;
+                const targetAngle = Math.atan2(dY, dX) * (180 / Math.PI);
+                track.vector.heading = (90 - targetAngle + 360) % 360;
+                track.vector.speed = 450; // Subsonic attack
+
+                // Fire ASM if in range (e.g. 60nm)
+                const dist = Math.sqrt(dX * dX + dY * dY);
+                if (dist < 60 && (track.ammo || 0) > 0 && Math.random() < 0.02) {
+                  newMissiles.push({
+                    id: `msl-hostile-${Date.now()}-${Math.random()}`,
+                    callsign: `ASM->${target.id}`,
+                    position: { ...track.position },
+                    vector: { heading: track.vector.heading, speed: 600 }, // Slower ASM
+                    altitude: 100, // Sea skimmer
+                    identity: TrackIdentity.HOSTILE,
+                    actualIdentity: TrackIdentity.HOSTILE,
+                    type: TrackType.MISSILE,
+                    engagementStatus: EngagementStatus.FIRING,
+                    lastUpdated: now,
+                    history: []
+                  });
+                  track.ammo = (track.ammo || 0) - 1;
+                  addLog("EW", `VAMPIRE! VAMPIRE! Inbound anti-ship missile from ${track.callsign}!`, 'critical');
+                }
+              }
+            }
+          }
+
           // 1. Relative Movement Physics
           // Decompose Ownship Vector
           const ownRads = (90 - OWNSHIP_VECTOR.heading) * (Math.PI / 180);
@@ -151,20 +268,25 @@ const App: React.FC = () => {
             y: track.position.y + dy
           };
 
-          // 2. Logic for Missiles (Ownship Fired)
-          if (track.type === TrackType.MISSILE && track.identity === TrackIdentity.FRIEND) {
+          // 2. Logic for Missiles
+          if (track.type === TrackType.MISSILE) {
             // Missile Logic: Updates its heading to point to target
             const targetId = track.callsign.split('->')[1];
-            // Use tracksRef for finding target to ensure we aren't limited by map closure? 
-            // Actually currentTracks is safest here.
-            const target = currentTracks.find(t => t.id === targetId);
 
-            if (target && target.engagementStatus !== EngagementStatus.DESTROYED) {
+            let target: Track | undefined;
+            let targetPos = { x: 0, y: 0 }; // Default to ownship
+
+            if (targetId === 'ownship') {
+              targetPos = { x: 0, y: 0 };
+            } else {
+              target = currentTracks.find(t => t.id === targetId);
+              if (target) targetPos = target.position;
+            }
+
+            if ((targetId === 'ownship') || (target && target.engagementStatus !== EngagementStatus.DESTROYED)) {
               // Update vector to point at target
-              // Note: Missiles move at absolute speed, but we display relative. 
-              // For simplicity, just set missile absolute heading to target.
-              const dX = target.position.x - track.position.x;
-              const dY = target.position.y - track.position.y;
+              const dX = targetPos.x - track.position.x;
+              const dY = targetPos.y - track.position.y;
               const targetAngle = Math.atan2(dY, dX) * (180 / Math.PI);
               const newHeading = (90 - targetAngle + 360) % 360;
 
@@ -173,8 +295,20 @@ const App: React.FC = () => {
               // Check hit
               const distToTarget = Math.sqrt(dX * dX + dY * dY);
               if (distToTarget < INTERCEPT_RANGE_NM) {
-                addLog("FC", `SPLASH TARGET ${target.callsign}!`, 'high');
-                return { ...track, engagementStatus: EngagementStatus.DESTROYED };
+                if (track.identity === TrackIdentity.FRIEND) {
+                  addLog("FC", `SPLASH TARGET ${target?.callsign}!`, 'high');
+                  return { ...track, engagementStatus: EngagementStatus.DESTROYED };
+                } else {
+                  // Hostile hit
+                  if (targetId === 'ownship') {
+                    addLog("DC", `IMPACT! WE ARE HIT!`, 'critical');
+                    setScore(s => s - 100);
+                  } else {
+                    addLog("EW", `Lost contact ${target?.callsign}`, 'critical');
+                    setScore(s => s - 50);
+                  }
+                  return { ...track, engagementStatus: EngagementStatus.DESTROYED };
+                }
               }
             } else {
               return { ...track, engagementStatus: EngagementStatus.DESTROYED };
@@ -189,23 +323,42 @@ const App: React.FC = () => {
           };
         });
 
+        // Add new missiles
+        updatedTracks = [...updatedTracks, ...newMissiles];
+
         // 3. Handle Collisions / Destructions from Step 2
         const missiles = updatedTracks.filter(t => t.type === TrackType.MISSILE && t.engagementStatus === EngagementStatus.DESTROYED);
         missiles.forEach(m => {
           const targetId = m.callsign.split('->')[1];
-          const targetIndex = updatedTracks.findIndex(t => t.id === targetId);
-          if (targetIndex !== -1) {
-            updatedTracks[targetIndex] = {
-              ...updatedTracks[targetIndex],
-              engagementStatus: EngagementStatus.DESTROYED,
-              vector: { ...updatedTracks[targetIndex].vector, speed: 0 }
-            };
-            // Score logic
-            if (updatedTracks[targetIndex].identity === TrackIdentity.HOSTILE) {
-              setScore(s => s + 50);
-            } else if (updatedTracks[targetIndex].identity === TrackIdentity.NEUTRAL || updatedTracks[targetIndex].identity === TrackIdentity.FRIEND) {
-              setScore(s => s - 200);
-              addLog("BRIDGE", "CEASE FIRE! BLUE ON BLUE!", 'critical');
+
+          if (targetId === 'ownship') {
+            // Ownship damage logic handled above
+          } else {
+            const targetIndex = updatedTracks.findIndex(t => t.id === targetId);
+            if (targetIndex !== -1) {
+              // Destroy target if hit by ANY missile (Friend or Hostile)
+              // But we should probably only destroy if it's a valid hit (Hostile -> Friend/Neutral, Friend -> Hostile/Neutral/Friend)
+              // For simplicity, if a missile hits a target, the target is destroyed.
+
+              updatedTracks[targetIndex] = {
+                ...updatedTracks[targetIndex],
+                engagementStatus: EngagementStatus.DESTROYED,
+                vector: { ...updatedTracks[targetIndex].vector, speed: 0 }
+              };
+
+              // Score logic
+              if (m.identity === TrackIdentity.FRIEND) {
+                // Blue missile hit something
+                if (updatedTracks[targetIndex].actualIdentity === TrackIdentity.HOSTILE) {
+                  setScore(s => s + 50);
+                } else {
+                  // Blue on Blue / Blue on Neutral
+                  setScore(s => s - 200);
+                  addLog("BRIDGE", "CEASE FIRE! BLUE ON BLUE!", 'critical');
+                }
+              } else {
+                // Red missile hit something (already penalized in step 2, but maybe add more logic here if needed)
+              }
             }
           }
         });
@@ -340,7 +493,7 @@ const App: React.FC = () => {
           <div className="flex-1 bg-gray-900 border border-gray-700 rounded p-2 overflow-y-auto">
             <h3 className="text-xs font-bold text-gray-500 mb-2 uppercase border-b border-gray-700 pb-1">Track List</h3>
             <div className="space-y-1">
-              {tracks.filter(t => t.type !== TrackType.MISSILE).map(t => (
+              {tracks.filter(t => t.type !== TrackType.MISSILE || t.identity === TrackIdentity.HOSTILE).map(t => (
                 <div
                   key={t.id}
                   onClick={() => setSelectedTrackId(t.id)}
@@ -417,10 +570,24 @@ const App: React.FC = () => {
           ) : null}
 
           <RadarDisplay
-            tracks={tracks}
+            tracks={tracks.filter(t => {
+              // Calculate distance to ownship (0,0)
+              const dist = Math.sqrt(t.position.x * t.position.x + t.position.y * t.position.y);
+
+              // Determine Max Detection Range
+              // Check if Hawkeye is alive
+              const hawkeye = tracks.find(tr => tr.id === 'own-hawkeye-1');
+              const hawkeyeActive = hawkeye && hawkeye.engagementStatus !== EngagementStatus.DESTROYED;
+
+              const maxRange = hawkeyeActive ? 300 : 200;
+
+              return dist <= maxRange;
+            })}
             selectedTrackId={selectedTrackId}
             onSelectTrack={setSelectedTrackId}
             ownShipHeading={OWNSHIP_VECTOR.heading}
+            currentRange={radarRange}
+            onRangeChange={setRadarRange}
           />
 
           {/* Scenario overlay text */}

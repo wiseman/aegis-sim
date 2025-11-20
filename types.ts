@@ -25,6 +25,12 @@ export interface Position {
   y: number; // Nautical Miles from ownship (North is +)
 }
 
+export enum TrackRole {
+  FIGHTER = 'FIGHTER',
+  ATTACK = 'ATTACK',
+  NONE = 'NONE'
+}
+
 export interface Track {
   id: string;
   callsign: string;
@@ -34,12 +40,15 @@ export interface Track {
     speed: number;   // Knots
   };
   altitude: number; // Feet
-  identity: TrackIdentity;
+  identity: TrackIdentity; // Displayed identity
+  actualIdentity?: TrackIdentity; // Ground truth identity
   type: TrackType;
+  role?: TrackRole; // Optional role for air contacts
   engagementStatus: EngagementStatus;
   lastUpdated: number;
   history: Position[]; // Trail
   responsive?: boolean; // Whether the track responds to queries
+  ammo?: number; // Remaining missiles
 }
 
 export interface LogMessage {

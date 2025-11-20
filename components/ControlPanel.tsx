@@ -92,7 +92,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           {weaponsFree ? (
             <button
               onClick={() => onEngage(selectedTrack.id)}
-              disabled={selectedTrack.engagementStatus !== EngagementStatus.NONE && selectedTrack.engagementStatus !== EngagementStatus.TRACKING}
+              disabled={selectedTrack.engagementStatus !== EngagementStatus.NONE && selectedTrack.engagementStatus !== EngagementStatus.TRACKING && selectedTrack.engagementStatus !== EngagementStatus.FIRING}
               className="w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-4 rounded border-2 border-red-800 shadow-[0_0_15px_rgba(239,68,68,0.5)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
               <ShieldAlert size={20} />

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Track, TrackIdentity, TrackType, EngagementStatus } from "../types";
+import { Track, TrackIdentity, TrackType, EngagementStatus, TrackRole } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -14,14 +14,14 @@ export const generateScenario = async (): Promise<{
     Generate a scenario description and a list of 4-6 initial radar contacts (tracks).
     
     Constraints:
-    1. Area: 90nm radius.
-    2. Mix of commercial air traffic (NEUTRAL) and potential threats (UNKNOWN/HOSTILE).
-    3. Threats should not be immediately obvious (start as UNKNOWN).
-    4. Positions should be relative X/Y in nautical miles (max 90nm).
-    5. Speeds in knots (300-600 for air, 30 for surface).
+    1. Area: 300nm radius.
+    2. Mix of commercial air traffic (NEUTRAL) and threats (HOSTILE).
+    4. Positions should be relative X/Y in nautical miles (max 300nm).
+    5. Speeds in knots (300-600 for NEUTRAL air, 600-1200 for HOSTILE air, 30 for surface).
     6. Altitudes in feet.
     7. Some tracks should be non-responsive (responsive: false), regardless of identity.
     8. Callsigns: SKUNK for unk. surface contacts, BOGEY for unk. air contacts.
+    9. Assign roles to AIR tracks: FIGHTER (fast, AAMs), ATTACK (slower, ASMs), or NONE (civilian/neutral).
     
     Output JSON format only.
   `;
@@ -58,8 +58,9 @@ export const generateScenario = async (): Promise<{
                     }
                   },
                   altitude: { type: Type.NUMBER },
-                  identity: { type: Type.STRING, enum: ["UNKNOWN", "NEUTRAL", "FRIEND", "HOSTILE"] },
+                  identity: { type: Type.STRING, enum: ["NEUTRAL", "FRIEND", "HOSTILE"] },
                   type: { type: Type.STRING, enum: ["AIR", "SURFACE"] },
+                  role: { type: Type.STRING, enum: ["FIGHTER", "ATTACK", "NONE"] },
                   responsive: { type: Type.BOOLEAN }
                 }
               }
@@ -87,6 +88,7 @@ export const generateScenario = async (): Promise<{
           altitude: 30000,
           identity: TrackIdentity.UNKNOWN,
           type: TrackType.AIR,
+          role: TrackRole.ATTACK,
           responsive: false,
         }
       ]
