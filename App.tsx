@@ -249,7 +249,7 @@ const App: React.FC = () => {
         addLog("COMS", `No response from ${currentTrack.callsign}.`, 'high');
       } else {
         try {
-          const resp = await generateChatter("Civilian Response", "Civilian airliner responding to query, stating they are off course.");
+          const resp = await generateChatter(`Civilian Response`, `Civilian aircraft ${currentTrack.callsign} responding to query, stating they are off course.`);
           addLog("AIR", `"${resp}"`, 'normal');
           // Only mark neutral if not already friendly/hostile decision made
           if (currentTrack.identity === TrackIdentity.UNKNOWN || currentTrack.identity === TrackIdentity.PENDING) {
