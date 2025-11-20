@@ -6,7 +6,7 @@ import { Track, TrackIdentity, LogMessage, GamePhase, EngagementStatus, TrackTyp
 import { INITIAL_LOGS, SIMULATION_TICK_MS, MISSILE_SPEED_KTS, INTERCEPT_RANGE_NM } from './constants';
 import { generateScenario, generateChatter, generateDebrief } from './services/geminiService';
 import { Play, Activity, Shield, AlertTriangle, Skull } from 'lucide-react';
-import { calculateVectorToTarget, calculateEgressVector, calculateBullseye, updatePosition, calculateDistance } from './utils/movementUtils';
+import { calculateVectorToTarget, calculateEgressVector, calculateBullseye, updatePosition, calculateDistance, calculateProportionalNavigationVector } from './utils/movementUtils';
 
 const App: React.FC = () => {
   // --- State ---
@@ -273,9 +273,14 @@ const App: React.FC = () => {
           }
 
           if ((targetId === 'ownship') || (target && target.engagementStatus !== EngagementStatus.DESTROYED)) {
-            // Update vector to point at target
-            const interceptVec = calculateVectorToTarget(track.position, targetPos, track.vector.speed);
-            track.vector.heading = interceptVec.heading;
+            // Update vector to point at target (Proportional Navigation)
+            const pnVector = calculateProportionalNavigationVector(
+              track.position,
+              track.vector,
+              targetPos,
+              target ? target.vector : { heading: 0, speed: 0 }
+            );
+            track.vector.heading = pnVector.heading;
 
             // Check hit
             const distToTarget = calculateDistance(track.position, targetPos);
