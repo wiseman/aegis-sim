@@ -196,7 +196,22 @@ const App: React.FC = () => {
                     history: []
                   });
                   track.ammo = (track.ammo || 0) - 1;
-                  addLog("EW", `VAMPIRE! VAMPIRE! Inbound missile from ${track.callsign}!`, 'critical');
+                  // Calculate Bullseye (Target relative) data
+                  const bX = track.position.x - target.position.x;
+                  const bY = track.position.y - target.position.y;
+                  const bRange = Math.sqrt(bX * bX + bY * bY);
+                  const bBearingRad = Math.atan2(bY, bX);
+                  let bBearingDeg = (90 - (bBearingRad * (180 / Math.PI)) + 360) % 360;
+
+                  // Rounding
+                  const roundedRange = Math.round(bRange);
+                  const roundedBearing = Math.round(bBearingDeg / 5) * 5;
+                  const angels = Math.floor(track.altitude / 1000);
+
+                  // Get Hawkeye callsign
+                  const hawkeyeCallsign = target.callsign.split(' ')[0] || "EAGLE"; // Fallback
+
+                  addLog("AIC", `${hawkeyeCallsign}, MISSILE, MISSILE, MISSILE – BULLSEYE ${roundedBearing.toString().padStart(3, '0')}/${roundedRange}, ANGELS ${angels}, THREAT TO YOU.`, 'critical');
                 }
               }
             }
