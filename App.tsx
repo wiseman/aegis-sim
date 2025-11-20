@@ -148,209 +148,221 @@ const App: React.FC = () => {
     if (phase !== GamePhase.ACTIVE) return;
 
     const interval = setInterval(() => {
-      setTracks(currentTracks => {
-        const now = Date.now();
+      const currentTracks = tracksRef.current;
+      const now = Date.now();
 
-        // Calculate Hours per tick for movement
-        const hoursPerTick = (SIMULATION_TICK_MS / 3600000) * TIME_ACCELERATION;
+      // Calculate Hours per tick for movement
+      const hoursPerTick = (SIMULATION_TICK_MS / 3600000) * TIME_ACCELERATION;
 
-        let newMissiles: Track[] = [];
+      let newMissiles: Track[] = [];
+      let logsToAdd: { sender: string, content: string, priority: LogMessage['priority'] }[] = [];
+      let scoreChange = 0;
 
-        let updatedTracks = currentTracks.map(track => {
-          // 0. AI Logic (Hostiles Only)
-          // Use actualIdentity for AI behavior
-          if (track.actualIdentity === TrackIdentity.HOSTILE && track.type === TrackType.AIR && track.engagementStatus !== EngagementStatus.DESTROYED) {
-            // Fighter Logic
-            if (track.role === TrackRole.FIGHTER) {
-              // Target Blue Air (Hawkeye)
-              const target = currentTracks.find(t => t.id === 'own-hawkeye-1');
-              const targetDestroyed = !target || target.engagementStatus === EngagementStatus.DESTROYED;
+      // Helper to queue logs to avoid side effects in state updater
+      const queueLog = (sender: string, content: string, priority: LogMessage['priority'] = 'normal') => {
+        logsToAdd.push({ sender, content, priority });
+      };
 
-              if (targetDestroyed) {
-                // Egress Logic: Run away from ownship (0,0)
-                const egressVec = calculateEgressVector(track.position, { x: 0, y: 0 }, 1000);
-                track.vector.heading = egressVec.heading;
-                track.vector.speed = egressVec.speed;
-              } else {
-                // Move towards target
-                const interceptVec = calculateVectorToTarget(track.position, target.position, 800);
-                track.vector.heading = interceptVec.heading;
-                track.vector.speed = interceptVec.speed;
+      let updatedTracks = currentTracks.map(track => {
+        // 0. AI Logic (Hostiles Only)
+        // Use actualIdentity for AI behavior
+        if (track.actualIdentity === TrackIdentity.HOSTILE && track.type === TrackType.AIR && track.engagementStatus !== EngagementStatus.DESTROYED) {
+          // Fighter Logic
+          if (track.role === TrackRole.FIGHTER) {
+            // Target Blue Air (Hawkeye)
+            const target = currentTracks.find(t => t.id === 'own-hawkeye-1');
+            const targetDestroyed = !target || target.engagementStatus === EngagementStatus.DESTROYED;
 
-                // Fire AAM if in range (e.g. 40nm) and has ammo
-                const dist = calculateDistance(track.position, target.position);
-                if (dist < 40 && (track.ammo || 0) > 0 && Math.random() < 0.60) {
-                  newMissiles.push({
-                    id: `msl-hostile-${Date.now()}-${Math.random()}`,
-                    callsign: `AAM->${target.id}`,
-                    position: { ...track.position },
-                    vector: { heading: track.vector.heading, speed: 2000 },
-                    altitude: track.altitude,
-                    identity: TrackIdentity.HOSTILE,
-                    actualIdentity: TrackIdentity.HOSTILE,
-                    type: TrackType.MISSILE,
-                    engagementStatus: EngagementStatus.FIRING,
-                    lastUpdated: now,
-                    history: []
-                  });
-                  track.ammo = (track.ammo || 0) - 1;
-                  // Calculate Bullseye (Target relative) data
-                  const bullseye = calculateBullseye(track.position, target.position);
-
-                  // Rounding
-                  const angels = Math.floor(track.altitude / 1000);
-
-                  // Get Hawkeye callsign
-                  const hawkeyeCallsign = target.callsign.split(' ')[0] || "EAGLE"; // Fallback
-
-                  addLog("AIC", `${hawkeyeCallsign}, MISSILE, MISSILE, MISSILE – BULLSEYE ${bullseye.bearing.toString().padStart(3, '0')}/${bullseye.range}, ANGELS ${angels}, THREAT TO YOU.`, 'critical');
-                }
-              }
-            }
-            // Attack Logic
-            else if (track.role === TrackRole.ATTACK) {
-              // Target Surface (Ownship)
-              const target = { position: { x: 0, y: 0 }, id: 'ownship' }; // Ownship is at 0,0 relative
-
-              // Check ammo status
-              if ((track.ammo || 0) <= 0) {
-                // Egress Logic: Run away from ownship
-                const egressVec = calculateEgressVector(track.position, { x: 0, y: 0 }, 800);
-                track.vector.heading = egressVec.heading;
-                track.vector.speed = egressVec.speed;
-              } else {
-                // Move towards target
-                const interceptVec = calculateVectorToTarget(track.position, target.position, 450);
-                track.vector.heading = interceptVec.heading;
-                track.vector.speed = interceptVec.speed;
-
-                // Fire ASM if in range (e.g. 60nm)
-                const dist = calculateDistance(track.position, target.position);
-                if (dist < 60 && (track.ammo || 0) > 0 && Math.random() < 0.6) {
-                  newMissiles.push({
-                    id: `msl-hostile-${Date.now()}-${Math.random()}`,
-                    callsign: `ASM->${target.id}`,
-                    position: { ...track.position },
-                    vector: { heading: track.vector.heading, speed: 600 }, // Slower ASM
-                    altitude: 100, // Sea skimmer
-                    identity: TrackIdentity.HOSTILE,
-                    actualIdentity: TrackIdentity.HOSTILE,
-                    type: TrackType.MISSILE,
-                    engagementStatus: EngagementStatus.FIRING,
-                    lastUpdated: now,
-                    history: []
-                  });
-                  track.ammo = (track.ammo || 0) - 1;
-                  addLog("EW", `VAMPIRE! VAMPIRE! Inbound anti-ship missile from ${track.callsign}!`, 'critical');
-                }
-              }
-            }
-          }
-
-          // 1. Relative Movement Physics
-          const newPos = updatePosition(track.position, track.vector, OWNSHIP_VECTOR, hoursPerTick);
-
-          // 2. Logic for Missiles
-          if (track.type === TrackType.MISSILE) {
-            // Missile Logic: Updates its heading to point to target
-            const targetId = track.callsign.split('->')[1];
-
-            let target: Track | undefined;
-            let targetPos = { x: 0, y: 0 }; // Default to ownship
-
-            if (targetId === 'ownship') {
-              targetPos = { x: 0, y: 0 };
+            if (targetDestroyed) {
+              // Egress Logic: Run away from ownship (0,0)
+              const egressVec = calculateEgressVector(track.position, { x: 0, y: 0 }, 1000);
+              track.vector.heading = egressVec.heading;
+              track.vector.speed = egressVec.speed;
             } else {
-              target = currentTracks.find(t => t.id === targetId);
-              if (target) targetPos = target.position;
-            }
-
-            if ((targetId === 'ownship') || (target && target.engagementStatus !== EngagementStatus.DESTROYED)) {
-              // Update vector to point at target
-              const interceptVec = calculateVectorToTarget(track.position, targetPos, track.vector.speed);
+              // Move towards target
+              const interceptVec = calculateVectorToTarget(track.position, target.position, 800);
               track.vector.heading = interceptVec.heading;
+              track.vector.speed = interceptVec.speed;
 
-              // Check hit
-              const distToTarget = calculateDistance(track.position, targetPos);
-              if (distToTarget < INTERCEPT_RANGE_NM) {
-                if (track.identity === TrackIdentity.FRIEND) {
-                  addLog("FC", `SPLASH TARGET ${target?.callsign}!`, 'high');
-                  return { ...track, engagementStatus: EngagementStatus.DESTROYED };
-                } else {
-                  // Hostile hit
-                  if (targetId === 'ownship') {
-                    addLog("DC", `IMPACT! WE ARE HIT!`, 'critical');
-                    setScore(s => s - 100);
-                  } else {
-                    addLog("EW", `Lost contact ${target?.callsign}`, 'critical');
-                    setScore(s => s - 50);
-                  }
-                  return { ...track, engagementStatus: EngagementStatus.DESTROYED };
-                }
+              // Fire AAM if in range (e.g. 40nm) and has ammo
+              const dist = calculateDistance(track.position, target.position);
+              if (dist < 40 && (track.ammo || 0) > 0 && Math.random() < 0.60) {
+                newMissiles.push({
+                  id: `msl-hostile-${Date.now()}-${Math.random()}`,
+                  callsign: `AAM->${target.id}`,
+                  position: { ...track.position },
+                  vector: { heading: track.vector.heading, speed: 2000 },
+                  altitude: track.altitude,
+                  identity: TrackIdentity.HOSTILE,
+                  actualIdentity: TrackIdentity.HOSTILE,
+                  type: TrackType.MISSILE,
+                  engagementStatus: EngagementStatus.FIRING,
+                  lastUpdated: now,
+                  history: []
+                });
+                track.ammo = (track.ammo || 0) - 1;
+                // Calculate Bullseye (Target relative) data
+                const bullseye = calculateBullseye(track.position, target.position);
+
+                // Rounding
+                const angels = Math.floor(track.altitude / 1000);
+
+                // Get Hawkeye callsign
+                const hawkeyeCallsign = target.callsign.split(' ')[0] || "EAGLE"; // Fallback
+
+                queueLog("AIC", `${hawkeyeCallsign}, MISSILE, MISSILE, MISSILE – BULLSEYE ${bullseye.bearing.toString().padStart(3, '0')}/${bullseye.range}, ANGELS ${angels}, THREAT TO YOU.`, 'critical');
               }
-            } else {
-              return { ...track, engagementStatus: EngagementStatus.DESTROYED };
             }
           }
+          // Attack Logic
+          else if (track.role === TrackRole.ATTACK) {
+            // Target Surface (Ownship)
+            const target = { position: { x: 0, y: 0 }, id: 'ownship' }; // Ownship is at 0,0 relative
 
-          return {
-            ...track,
-            position: newPos,
-            lastUpdated: now,
-            vector: { ...track.vector }
-          };
-        });
+            // Check ammo status
+            if ((track.ammo || 0) <= 0) {
+              // Egress Logic: Run away from ownship
+              const egressVec = calculateEgressVector(track.position, { x: 0, y: 0 }, 800);
+              track.vector.heading = egressVec.heading;
+              track.vector.speed = egressVec.speed;
+            } else {
+              // Move towards target
+              const interceptVec = calculateVectorToTarget(track.position, target.position, 450);
+              track.vector.heading = interceptVec.heading;
+              track.vector.speed = interceptVec.speed;
 
-        // Add new missiles
-        updatedTracks = [...updatedTracks, ...newMissiles];
+              // Fire ASM if in range (e.g. 60nm)
+              const dist = calculateDistance(track.position, target.position);
+              if (dist < 60 && (track.ammo || 0) > 0 && Math.random() < 0.6) {
+                newMissiles.push({
+                  id: `msl-hostile-${Date.now()}-${Math.random()}`,
+                  callsign: `ASM->${target.id}`,
+                  position: { ...track.position },
+                  vector: { heading: track.vector.heading, speed: 600 }, // Slower ASM
+                  altitude: 100, // Sea skimmer
+                  identity: TrackIdentity.HOSTILE,
+                  actualIdentity: TrackIdentity.HOSTILE,
+                  type: TrackType.MISSILE,
+                  engagementStatus: EngagementStatus.FIRING,
+                  lastUpdated: now,
+                  history: []
+                });
+                track.ammo = (track.ammo || 0) - 1;
+                queueLog("EW", `VAMPIRE! VAMPIRE! Inbound anti-ship missile from ${track.callsign}!`, 'critical');
+              }
+            }
+          }
+        }
 
-        // 3. Handle Collisions / Destructions from Step 2
-        const missiles = updatedTracks.filter(t => t.type === TrackType.MISSILE && t.engagementStatus === EngagementStatus.DESTROYED);
-        missiles.forEach(m => {
-          const targetId = m.callsign.split('->')[1];
+        // 1. Relative Movement Physics
+        const newPos = updatePosition(track.position, track.vector, OWNSHIP_VECTOR, hoursPerTick);
+
+        // 2. Logic for Missiles
+        if (track.type === TrackType.MISSILE) {
+          // Missile Logic: Updates its heading to point to target
+          const targetId = track.callsign.split('->')[1];
+
+          let target: Track | undefined;
+          let targetPos = { x: 0, y: 0 }; // Default to ownship
 
           if (targetId === 'ownship') {
-            // Ownship damage logic handled above
+            targetPos = { x: 0, y: 0 };
           } else {
-            const targetIndex = updatedTracks.findIndex(t => t.id === targetId);
-            if (targetIndex !== -1) {
-              // Destroy target if hit by ANY missile (Friend or Hostile)
-              // But we should probably only destroy if it's a valid hit (Hostile -> Friend/Neutral, Friend -> Hostile/Neutral/Friend)
-              // For simplicity, if a missile hits a target, the target is destroyed.
+            target = currentTracks.find(t => t.id === targetId);
+            if (target) targetPos = target.position;
+          }
 
-              if (updatedTracks[targetIndex].engagementStatus !== EngagementStatus.DESTROYED) {
-                updatedTracks[targetIndex] = {
-                  ...updatedTracks[targetIndex],
-                  engagementStatus: EngagementStatus.DESTROYED,
-                  vector: { ...updatedTracks[targetIndex].vector, speed: 0 }
-                };
+          if ((targetId === 'ownship') || (target && target.engagementStatus !== EngagementStatus.DESTROYED)) {
+            // Update vector to point at target
+            const interceptVec = calculateVectorToTarget(track.position, targetPos, track.vector.speed);
+            track.vector.heading = interceptVec.heading;
 
-                if (updatedTracks[targetIndex].id === 'own-hawkeye-1') {
-                  addLog("SYSTEM", "Radar datalink lost - AWACS Down", 'critical');
-                }
-              }
-
-              // Score logic
-              if (m.identity === TrackIdentity.FRIEND) {
-                // Blue missile hit something
-                if (updatedTracks[targetIndex].actualIdentity === TrackIdentity.HOSTILE) {
-                  setScore(s => s + 50);
-                } else {
-                  // Blue on Blue / Blue on Neutral
-                  setScore(s => s - 200);
-                  addLog("BRIDGE", "CEASE FIRE! BLUE ON BLUE!", 'critical');
-                }
+            // Check hit
+            const distToTarget = calculateDistance(track.position, targetPos);
+            if (distToTarget < INTERCEPT_RANGE_NM) {
+              if (track.identity === TrackIdentity.FRIEND) {
+                queueLog("FC", `SPLASH TARGET ${target?.callsign}!`, 'high');
+                return { ...track, engagementStatus: EngagementStatus.DESTROYED };
               } else {
-                // Red missile hit something (already penalized in step 2, but maybe add more logic here if needed)
+                // Hostile hit
+                if (targetId === 'ownship') {
+                  queueLog("DC", `IMPACT! WE ARE HIT!`, 'critical');
+                  scoreChange -= 100;
+                } else {
+                  queueLog("EW", `Lost contact ${target?.callsign}`, 'critical');
+                  scoreChange -= 50;
+                }
+                return { ...track, engagementStatus: EngagementStatus.DESTROYED };
               }
             }
+          } else {
+            return { ...track, engagementStatus: EngagementStatus.DESTROYED };
           }
-        });
+        }
 
-        updatedTracks = updatedTracks.filter(t => !(t.type === TrackType.MISSILE && t.engagementStatus === EngagementStatus.DESTROYED));
-
-        return updatedTracks;
+        return {
+          ...track,
+          position: newPos,
+          lastUpdated: now,
+          vector: { ...track.vector }
+        };
       });
+
+      // Add new missiles
+      updatedTracks = [...updatedTracks, ...newMissiles];
+
+      // 3. Handle Collisions / Destructions from Step 2
+      const missiles = updatedTracks.filter(t => t.type === TrackType.MISSILE && t.engagementStatus === EngagementStatus.DESTROYED);
+      missiles.forEach(m => {
+        const targetId = m.callsign.split('->')[1];
+
+        if (targetId === 'ownship') {
+          // Ownship damage logic handled above
+        } else {
+          const targetIndex = updatedTracks.findIndex(t => t.id === targetId);
+          if (targetIndex !== -1) {
+            // Destroy target if hit by ANY missile (Friend or Hostile)
+            // But we should probably only destroy if it's a valid hit (Hostile -> Friend/Neutral, Friend -> Hostile/Neutral/Friend)
+            // For simplicity, if a missile hits a target, the target is destroyed.
+
+            if (updatedTracks[targetIndex].engagementStatus !== EngagementStatus.DESTROYED) {
+              updatedTracks[targetIndex] = {
+                ...updatedTracks[targetIndex],
+                engagementStatus: EngagementStatus.DESTROYED,
+                vector: { ...updatedTracks[targetIndex].vector, speed: 0 }
+              };
+
+              if (updatedTracks[targetIndex].id === 'own-hawkeye-1') {
+                queueLog("SYSTEM", "Radar datalink lost - AWACS Down", 'critical');
+              }
+            }
+
+            // Score logic
+            if (m.identity === TrackIdentity.FRIEND) {
+              // Blue missile hit something
+              if (updatedTracks[targetIndex].actualIdentity === TrackIdentity.HOSTILE) {
+                scoreChange += 50;
+              } else {
+                // Blue on Blue / Blue on Neutral
+                scoreChange -= 200;
+                queueLog("BRIDGE", "CEASE FIRE! BLUE ON BLUE!", 'critical');
+              }
+            } else {
+              // Red missile hit something (already penalized in step 2, but maybe add more logic here if needed)
+            }
+          }
+        }
+      });
+
+      updatedTracks = updatedTracks.filter(t => !(t.type === TrackType.MISSILE && t.engagementStatus === EngagementStatus.DESTROYED));
+
+      // Apply State Updates
+      setTracks(updatedTracks);
+
+      // Apply Side Effects
+      logsToAdd.forEach(log => addLog(log.sender, log.content, log.priority));
+      if (scoreChange !== 0) setScore(s => s + scoreChange);
+
     }, SIMULATION_TICK_MS);
 
     return () => clearInterval(interval);
