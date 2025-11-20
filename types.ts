@@ -25,6 +25,11 @@ export interface Position {
   y: number; // Nautical Miles from ownship (North is +)
 }
 
+export interface Vector {
+  heading: number; // Degrees 0-359
+  speed: number;   // Knots
+}
+
 export enum TrackRole {
   FIGHTER = 'FIGHTER',
   ATTACK = 'ATTACK',
@@ -35,10 +40,7 @@ export interface Track {
   id: string;
   callsign: string;
   position: Position;
-  vector: {
-    heading: number; // Degrees 0-359
-    speed: number;   // Knots
-  };
+  vector: Vector;
   altitude: number; // Feet
   identity: TrackIdentity; // Displayed identity
   actualIdentity?: TrackIdentity; // Ground truth identity

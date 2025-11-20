@@ -6,6 +6,7 @@ import { Track, TrackIdentity, LogMessage, GamePhase, EngagementStatus, TrackTyp
 import { INITIAL_LOGS, SIMULATION_TICK_MS, MISSILE_SPEED_KTS, INTERCEPT_RANGE_NM } from './constants';
 import { generateScenario, generateChatter, generateDebrief } from './services/geminiService';
 import { Play, Activity, Shield, AlertTriangle, Skull } from 'lucide-react';
+import { calculateVectorToTarget, calculateEgressVector, calculateBullseye, updatePosition, calculateDistance } from './utils/movementUtils';
 
 const App: React.FC = () => {
   // --- State ---
@@ -167,21 +168,17 @@ const App: React.FC = () => {
 
               if (targetDestroyed) {
                 // Egress Logic: Run away from ownship (0,0)
-                const dX = track.position.x - 0;
-                const dY = track.position.y - 0;
-                const escapeAngle = Math.atan2(dY, dX) * (180 / Math.PI);
-                track.vector.heading = (90 - escapeAngle + 360) % 360;
-                track.vector.speed = 1000; // Max speed egress
+                const egressVec = calculateEgressVector(track.position, { x: 0, y: 0 }, 1000);
+                track.vector.heading = egressVec.heading;
+                track.vector.speed = egressVec.speed;
               } else {
                 // Move towards target
-                const dX = target.position.x - track.position.x;
-                const dY = target.position.y - track.position.y;
-                const targetAngle = Math.atan2(dY, dX) * (180 / Math.PI);
-                track.vector.heading = (90 - targetAngle + 360) % 360;
-                track.vector.speed = 800; // Afterburners
+                const interceptVec = calculateVectorToTarget(track.position, target.position, 800);
+                track.vector.heading = interceptVec.heading;
+                track.vector.speed = interceptVec.speed;
 
                 // Fire AAM if in range (e.g. 40nm) and has ammo
-                const dist = Math.sqrt(dX * dX + dY * dY);
+                const dist = calculateDistance(track.position, target.position);
                 if (dist < 40 && (track.ammo || 0) > 0 && Math.random() < 0.60) {
                   newMissiles.push({
                     id: `msl-hostile-${Date.now()}-${Math.random()}`,
@@ -198,21 +195,15 @@ const App: React.FC = () => {
                   });
                   track.ammo = (track.ammo || 0) - 1;
                   // Calculate Bullseye (Target relative) data
-                  const bX = track.position.x - target.position.x;
-                  const bY = track.position.y - target.position.y;
-                  const bRange = Math.sqrt(bX * bX + bY * bY);
-                  const bBearingRad = Math.atan2(bY, bX);
-                  let bBearingDeg = (90 - (bBearingRad * (180 / Math.PI)) + 360) % 360;
+                  const bullseye = calculateBullseye(track.position, target.position);
 
                   // Rounding
-                  const roundedRange = Math.round(bRange);
-                  const roundedBearing = Math.round(bBearingDeg / 5) * 5;
                   const angels = Math.floor(track.altitude / 1000);
 
                   // Get Hawkeye callsign
                   const hawkeyeCallsign = target.callsign.split(' ')[0] || "EAGLE"; // Fallback
 
-                  addLog("AIC", `${hawkeyeCallsign}, MISSILE, MISSILE, MISSILE – BULLSEYE ${roundedBearing.toString().padStart(3, '0')}/${roundedRange}, ANGELS ${angels}, THREAT TO YOU.`, 'critical');
+                  addLog("AIC", `${hawkeyeCallsign}, MISSILE, MISSILE, MISSILE – BULLSEYE ${bullseye.bearing.toString().padStart(3, '0')}/${bullseye.range}, ANGELS ${angels}, THREAT TO YOU.`, 'critical');
                 }
               }
             }
@@ -224,21 +215,17 @@ const App: React.FC = () => {
               // Check ammo status
               if ((track.ammo || 0) <= 0) {
                 // Egress Logic: Run away from ownship
-                const dX = track.position.x - 0;
-                const dY = track.position.y - 0;
-                const escapeAngle = Math.atan2(dY, dX) * (180 / Math.PI);
-                track.vector.heading = (90 - escapeAngle + 360) % 360;
-                track.vector.speed = 800; // Max speed egress
+                const egressVec = calculateEgressVector(track.position, { x: 0, y: 0 }, 800);
+                track.vector.heading = egressVec.heading;
+                track.vector.speed = egressVec.speed;
               } else {
                 // Move towards target
-                const dX = target.position.x - track.position.x;
-                const dY = target.position.y - track.position.y;
-                const targetAngle = Math.atan2(dY, dX) * (180 / Math.PI);
-                track.vector.heading = (90 - targetAngle + 360) % 360;
-                track.vector.speed = 450; // Subsonic attack
+                const interceptVec = calculateVectorToTarget(track.position, target.position, 450);
+                track.vector.heading = interceptVec.heading;
+                track.vector.speed = interceptVec.speed;
 
                 // Fire ASM if in range (e.g. 60nm)
-                const dist = Math.sqrt(dX * dX + dY * dY);
+                const dist = calculateDistance(track.position, target.position);
                 if (dist < 60 && (track.ammo || 0) > 0 && Math.random() < 0.6) {
                   newMissiles.push({
                     id: `msl-hostile-${Date.now()}-${Math.random()}`,
@@ -261,28 +248,7 @@ const App: React.FC = () => {
           }
 
           // 1. Relative Movement Physics
-          // Decompose Ownship Vector
-          const ownRads = (90 - OWNSHIP_VECTOR.heading) * (Math.PI / 180);
-          const ownVx = Math.cos(ownRads) * OWNSHIP_VECTOR.speed;
-          const ownVy = Math.sin(ownRads) * OWNSHIP_VECTOR.speed;
-
-          // Decompose Track Vector
-          const trackRads = (90 - track.vector.heading) * (Math.PI / 180);
-          const trackVx = Math.cos(trackRads) * track.vector.speed;
-          const trackVy = Math.sin(trackRads) * track.vector.speed;
-
-          // Relative Velocity
-          const relVx = trackVx - ownVx;
-          const relVy = trackVy - ownVy;
-
-          // Apply Movement
-          const dx = relVx * hoursPerTick;
-          const dy = relVy * hoursPerTick;
-
-          let newPos = {
-            x: track.position.x + dx,
-            y: track.position.y + dy
-          };
+          const newPos = updatePosition(track.position, track.vector, OWNSHIP_VECTOR, hoursPerTick);
 
           // 2. Logic for Missiles
           if (track.type === TrackType.MISSILE) {
@@ -301,15 +267,11 @@ const App: React.FC = () => {
 
             if ((targetId === 'ownship') || (target && target.engagementStatus !== EngagementStatus.DESTROYED)) {
               // Update vector to point at target
-              const dX = targetPos.x - track.position.x;
-              const dY = targetPos.y - track.position.y;
-              const targetAngle = Math.atan2(dY, dX) * (180 / Math.PI);
-              const newHeading = (90 - targetAngle + 360) % 360;
-
-              track.vector.heading = newHeading;
+              const interceptVec = calculateVectorToTarget(track.position, targetPos, track.vector.speed);
+              track.vector.heading = interceptVec.heading;
 
               // Check hit
-              const distToTarget = Math.sqrt(dX * dX + dY * dY);
+              const distToTarget = calculateDistance(track.position, targetPos);
               if (distToTarget < INTERCEPT_RANGE_NM) {
                 if (track.identity === TrackIdentity.FRIEND) {
                   addLog("FC", `SPLASH TARGET ${target?.callsign}!`, 'high');
