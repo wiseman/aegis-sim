@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [score, setScore] = useState(100);
   const [debriefText, setDebriefText] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
   // --- Constants for Physics ---
   const OWNSHIP_VECTOR = { heading: 0, speed: 20 }; // Moving North at 20kts
@@ -513,21 +514,78 @@ const App: React.FC = () => {
         <div className="col-span-2 flex flex-col gap-2">
           <div className="flex-1 bg-gray-900 border border-gray-700 rounded p-2 overflow-y-auto">
             <h3 className="text-xs font-bold text-gray-500 mb-2 uppercase border-b border-gray-700 pb-1">Track List</h3>
-            <div className="space-y-1">
-              {tracks.filter(t => t.type !== TrackType.MISSILE || t.identity === TrackIdentity.HOSTILE).map(t => (
+            <div className="flex flex-col h-full">
+              {/* Header */}
+              <div className="grid grid-cols-4 gap-1 text-[10px] font-bold text-gray-500 mb-1 px-1">
                 <div
-                  key={t.id}
-                  onClick={() => setSelectedTrackId(t.id)}
-                  className={`text-xs font-mono cursor-pointer p-1 rounded hover:bg-gray-800 ${t.id === selectedTrackId ? 'bg-gray-700 text-white' : 'text-gray-400'}`}
+                  className="cursor-pointer hover:text-gray-300"
+                  onClick={() => setSortConfig(current => ({ key: 'callsign', direction: current?.key === 'callsign' && current.direction === 'asc' ? 'desc' : 'asc' }))}
                 >
-                  <div className="flex justify-between">
-                    <span className="truncate max-w-[60%]">{t.callsign}</span>
-                    <span className={t.identity === TrackIdentity.HOSTILE ? 'text-red-500' : t.identity === TrackIdentity.FRIEND ? 'text-blue-500' : 'text-amber-500'}>
-                      {t.identity.charAt(0)}
-                    </span>
-                  </div>
+                  CALL {sortConfig?.key === 'callsign' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                 </div>
-              ))}
+                <div
+                  className="cursor-pointer hover:text-gray-300 text-center"
+                  onClick={() => setSortConfig(current => ({ key: 'identity', direction: current?.key === 'identity' && current.direction === 'asc' ? 'desc' : 'asc' }))}
+                >
+                  ID {sortConfig?.key === 'identity' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                </div>
+                <div
+                  className="cursor-pointer hover:text-gray-300 text-right"
+                  onClick={() => setSortConfig(current => ({ key: 'range', direction: current?.key === 'range' && current.direction === 'asc' ? 'desc' : 'asc' }))}
+                >
+                  RNG {sortConfig?.key === 'range' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                </div>
+                <div
+                  className="cursor-pointer hover:text-gray-300 text-right"
+                  onClick={() => setSortConfig(current => ({ key: 'speed', direction: current?.key === 'speed' && current.direction === 'asc' ? 'desc' : 'asc' }))}
+                >
+                  SPD {sortConfig?.key === 'speed' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                </div>
+              </div>
+
+              {/* List */}
+              <div className="space-y-1 overflow-y-auto flex-1">
+                {tracks
+                  .filter(t => t.type !== TrackType.MISSILE || t.identity === TrackIdentity.HOSTILE)
+                  .map(t => {
+                    // Calculate derived values for display & sorting
+                    const dist = Math.sqrt(t.position.x * t.position.x + t.position.y * t.position.y);
+                    return { ...t, _range: dist, _speed: t.vector.speed };
+                  })
+                  .sort((a, b) => {
+                    if (!sortConfig) return 0;
+
+                    let valA: any = a[sortConfig.key as keyof typeof a];
+                    let valB: any = b[sortConfig.key as keyof typeof b];
+
+                    // Handle special keys
+                    if (sortConfig.key === 'range') {
+                      valA = a._range;
+                      valB = b._range;
+                    } else if (sortConfig.key === 'speed') {
+                      valA = a._speed;
+                      valB = b._speed;
+                    }
+
+                    if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+                    if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+                    return 0;
+                  })
+                  .map(t => (
+                    <div
+                      key={t.id}
+                      onClick={() => setSelectedTrackId(t.id)}
+                      className={`text-xs font-mono cursor-pointer p-1 rounded hover:bg-gray-800 grid grid-cols-4 gap-1 items-center ${t.id === selectedTrackId ? 'bg-gray-700 text-white' : 'text-gray-400'}`}
+                    >
+                      <span className="truncate">{t.callsign}</span>
+                      <span className={`text-center ${t.identity === TrackIdentity.HOSTILE ? 'text-red-500' : t.identity === TrackIdentity.FRIEND ? 'text-blue-500' : 'text-amber-500'}`}>
+                        {t.identity.charAt(0)}
+                      </span>
+                      <span className="text-right text-gray-500">{Math.round(t._range)}</span>
+                      <span className="text-right text-gray-500">{Math.round(t._speed)}</span>
+                    </div>
+                  ))}
+              </div>
             </div>
           </div>
           <div className="h-1/3 bg-gray-900 border border-gray-700 rounded p-2 font-mono text-xs">
