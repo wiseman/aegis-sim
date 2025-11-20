@@ -181,7 +181,7 @@ const App: React.FC = () => {
 
                 // Fire AAM if in range (e.g. 40nm) and has ammo
                 const dist = Math.sqrt(dX * dX + dY * dY);
-                if (dist < 40 && (track.ammo || 0) > 0 && Math.random() < 0.05) {
+                if (dist < 40 && (track.ammo || 0) > 0 && Math.random() < 0.60) {
                   newMissiles.push({
                     id: `msl-hostile-${Date.now()}-${Math.random()}`,
                     callsign: `AAM->${target.id}`,
@@ -223,7 +223,7 @@ const App: React.FC = () => {
 
                 // Fire ASM if in range (e.g. 60nm)
                 const dist = Math.sqrt(dX * dX + dY * dY);
-                if (dist < 60 && (track.ammo || 0) > 0 && Math.random() < 0.02) {
+                if (dist < 60 && (track.ammo || 0) > 0 && Math.random() < 0.6) {
                   newMissiles.push({
                     id: `msl-hostile-${Date.now()}-${Math.random()}`,
                     callsign: `ASM->${target.id}`,
@@ -340,11 +340,17 @@ const App: React.FC = () => {
               // But we should probably only destroy if it's a valid hit (Hostile -> Friend/Neutral, Friend -> Hostile/Neutral/Friend)
               // For simplicity, if a missile hits a target, the target is destroyed.
 
-              updatedTracks[targetIndex] = {
-                ...updatedTracks[targetIndex],
-                engagementStatus: EngagementStatus.DESTROYED,
-                vector: { ...updatedTracks[targetIndex].vector, speed: 0 }
-              };
+              if (updatedTracks[targetIndex].engagementStatus !== EngagementStatus.DESTROYED) {
+                updatedTracks[targetIndex] = {
+                  ...updatedTracks[targetIndex],
+                  engagementStatus: EngagementStatus.DESTROYED,
+                  vector: { ...updatedTracks[targetIndex].vector, speed: 0 }
+                };
+
+                if (updatedTracks[targetIndex].id === 'own-hawkeye-1') {
+                  addLog("SYSTEM", "Radar datalink lost - AWACS Down", 'critical');
+                }
+              }
 
               // Score logic
               if (m.identity === TrackIdentity.FRIEND) {
