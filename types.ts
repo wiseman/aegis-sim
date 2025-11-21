@@ -51,6 +51,7 @@ export interface Track {
   history: Position[]; // Trail
   responsive?: boolean; // Whether the track responds to queries
   ammo?: number; // Remaining missiles
+  targetId?: string; // For missiles: ID of the target track
 }
 
 export interface LogMessage {

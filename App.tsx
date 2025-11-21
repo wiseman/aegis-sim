@@ -9,6 +9,12 @@ import { Play, Activity, Shield, AlertTriangle, Skull } from 'lucide-react';
 import { calculateVectorToTarget, calculateEgressVector, calculateBullseye, updatePosition, calculateDistance, calculateProportionalNavigationVector } from './utils/movementUtils';
 
 const App: React.FC = () => {
+  // --- Helper: Generate Missile Callsign ---
+  const generateMissileCallsign = () => {
+    const trackNumber = Math.floor(1000 + Math.random() * 9000);
+    return `TN${trackNumber}`;
+  };
+
   // --- State ---
   const [phase, setPhase] = useState<GamePhase>(GamePhase.BRIEFING);
   const [radarRange, setRadarRange] = useState<number>(200);
@@ -189,7 +195,8 @@ const App: React.FC = () => {
               if (dist < 40 && (track.ammo || 0) > 0 && Math.random() < 0.60) {
                 newMissiles.push({
                   id: `msl-hostile-${Date.now()}-${Math.random()}`,
-                  callsign: `AAM->${target.id}`,
+                  callsign: generateMissileCallsign(),
+                  targetId: target.id,
                   position: { ...track.position },
                   vector: { heading: track.vector.heading, speed: 2000 },
                   altitude: track.altitude,
@@ -236,7 +243,8 @@ const App: React.FC = () => {
               if (dist < 60 && (track.ammo || 0) > 0 && Math.random() < 0.6) {
                 newMissiles.push({
                   id: `msl-hostile-${Date.now()}-${Math.random()}`,
-                  callsign: `ASM->${target.id}`,
+                  callsign: generateMissileCallsign(),
+                  targetId: target.id,
                   position: { ...track.position },
                   vector: { heading: track.vector.heading, speed: 600 }, // Slower ASM
                   altitude: 100, // Sea skimmer
@@ -260,7 +268,7 @@ const App: React.FC = () => {
         // 2. Logic for Missiles
         if (track.type === TrackType.MISSILE) {
           // Missile Logic: Updates its heading to point to target
-          const targetId = track.callsign.split('->')[1];
+          const targetId = track.targetId;
 
           let target: Track | undefined;
           let targetPos = { x: 0, y: 0 }; // Default to ownship
@@ -319,7 +327,7 @@ const App: React.FC = () => {
       // 3. Handle Collisions / Destructions from Step 2
       const missiles = updatedTracks.filter(t => t.type === TrackType.MISSILE && t.engagementStatus === EngagementStatus.DESTROYED);
       missiles.forEach(m => {
-        const targetId = m.callsign.split('->')[1];
+        const targetId = m.targetId;
 
         if (targetId === 'ownship') {
           // Ownship damage logic handled above
@@ -429,7 +437,8 @@ const App: React.FC = () => {
 
     const missile: Track = {
       id: `msl-${Date.now()}`,
-      callsign: `SM-2->${target.id}`,
+      callsign: generateMissileCallsign(),
+      targetId: target.id,
       position: { x: 0, y: 0 }, // Launch from ownship center
       vector: { heading: 0, speed: MISSILE_SPEED_KTS },
       altitude: 1000,
@@ -525,7 +534,6 @@ const App: React.FC = () => {
               {/* List */}
               <div className="space-y-1 overflow-y-auto flex-1">
                 {tracks
-                  .filter(t => t.type !== TrackType.MISSILE || t.identity === TrackIdentity.HOSTILE)
                   .map(t => {
                     // Calculate derived values for display & sorting
                     const dist = Math.sqrt(t.position.x * t.position.x + t.position.y * t.position.y);

@@ -101,7 +101,7 @@ const RadarDisplay: React.FC<RadarDisplayProps> = ({
 
         {/* Label */}
         <text x={x + 12} y={y} className={`text-xs font-mono fill-current ${colorClass.split(' ')[0]} select-none`}>
-          {track.callsign ? track.callsign.substring(0, 6) : "UNK"}
+          {track.callsign ? track.callsign.replace(/\s/g, '').substring(0, 7) : "UNK"}
         </text>
         <text x={x + 12} y={y + 10} className={`text-[10px] font-mono fill-current ${colorClass.split(' ')[0]} select-none opacity-70`}>
           {track.altitude > 0 ? Math.round(track.altitude / 100) + 'FL' : 'SURF'}
