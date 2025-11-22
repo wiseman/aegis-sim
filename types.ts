@@ -52,6 +52,7 @@ export interface Track {
   responsive?: boolean; // Whether the track responds to queries
   ammo?: number; // Remaining missiles
   targetId?: string; // For missiles: ID of the target track
+  defending?: boolean; // Whether the track is currently evading a missile
 }
 
 export interface LogMessage {

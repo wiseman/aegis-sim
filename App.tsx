@@ -314,6 +314,35 @@ const App: React.FC = () => {
           }
         }
 
+        // 2.5. Evasion Logic for Hawkeye (or other friendly air)
+        // Check if any missile is targeting this track
+        if (track.identity === TrackIdentity.FRIEND && track.type === TrackType.AIR && !track.defending) {
+          const incomingMissile = currentTracks.find(t =>
+            t.type === TrackType.MISSILE &&
+            t.targetId === track.id &&
+            t.engagementStatus !== EngagementStatus.DESTROYED
+          );
+
+          if (incomingMissile) {
+            // 90% chance to defend
+            if (Math.random() < 0.90) {
+              // Calculate egress vector
+              const egressVec = calculateEgressVector(track.position, incomingMissile.position, track.vector.speed);
+
+              // Update track vector to evade
+              track.vector.heading = egressVec.heading;
+              track.vector.speed = egressVec.speed; // Maintain speed or could go max speed
+              track.defending = true;
+
+              // Queue log message
+              // We want this to happen AFTER the "threat to you" call which happens at launch.
+              // Since launch happens in the same tick (potentially) or previous ticks, and this checks for *existing* missiles,
+              // the launch warning should have already fired.
+              queueLog("AIR", `${track.callsign} defending!`, 'high');
+            }
+          }
+        }
+
         return {
           ...track,
           position: newPos,
