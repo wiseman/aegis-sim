@@ -119,6 +119,7 @@ export const generateChatter = async (
       model: "gemini-2.5-flash",
       contents: prompt,
     });
+    console.log(`Response: ${response.text}`);
     return response.text || "Roger that.";
   } catch (e) {
     return "Copy.";
@@ -144,6 +145,7 @@ export const generateDebrief = async (
       model: "gemini-2.5-flash",
       contents: prompt,
     });
+    console.log(`Response: ${response.text}`);
     return response.text || "Debrief generation failed.";
   } catch (e) {
     return "Data corrupted. No debrief available.";

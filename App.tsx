@@ -27,6 +27,7 @@ const App: React.FC = () => {
   const [debriefText, setDebriefText] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [vlsCellCounter, setVlsCellCounter] = useState(1);
 
   // --- Constants for Physics ---
   const OWNSHIP_VECTOR = { heading: 0, speed: 20 }; // Moving North at 20kts
@@ -389,10 +390,7 @@ const App: React.FC = () => {
     const track = tracksRef.current.find(t => t.id === id);
     if (track) {
       addLog("TAO", `Classifying track ${track.callsign} as ${identity}`);
-      // Sim chatter
-      // Don't await chatter for ID change to keep UI snappy
-      generateChatter("Classification Changed", `Target ${track.callsign} marked as ${identity} by TAO.`)
-        .then(chatter => addLog("TIC", chatter));
+      addLog("CIC", `Bridge, CIC. TAO declares ${track.callsign} reclassified as ${identity}`);
     }
   };
 
@@ -410,16 +408,8 @@ const App: React.FC = () => {
       if (currentTrack.responsive === false) {
         addLog("COMS", `No response from ${currentTrack.callsign}.`, 'high');
       } else {
-        try {
-          const resp = await generateChatter(`Civilian Response`, `Civilian aircraft ${currentTrack.callsign} responding to query, stating they are off course.`);
-          addLog("AIR", `"${resp}"`, 'normal');
-          // Only mark neutral if not already friendly/hostile decision made
-          if (currentTrack.identity === TrackIdentity.UNKNOWN || currentTrack.identity === TrackIdentity.PENDING) {
-            handleIdentify(id, TrackIdentity.NEUTRAL);
-          }
-        } catch (e) {
-          console.error("Chatter generation failed", e);
-        }
+        const resp = await generateChatter(`Civilian Response`, `Civilian aircraft ${currentTrack.callsign} responding to query, stating they are off course.`);
+        addLog("AIR", `"${resp}"`, 'normal');
       }
     }, 2000);
   };
@@ -451,8 +441,9 @@ const App: React.FC = () => {
 
     setTracks(prev => [...prev, missile]);
 
-    const chatter = await generateChatter("Missile Launch", "Standard Missile 2 launched from VLS.");
-    addLog("MSS", chatter);
+    // Procedurally generate launch message with VLS cell number
+    addLog("FC", `Fire Control to CIC, Bridge: SM-2 launch, VLS cell ${vlsCellCounter}. Missile airborne and tracking.`);
+    setVlsCellCounter(prev => prev + 1);
   };
 
   const handleEndGame = async () => {
